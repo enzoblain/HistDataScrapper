@@ -1,0 +1,68 @@
+name: Build Rust Release (Linux, macOS, Windows)
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          profile: minimal
+
+      - name: Build release Linux
+        run: cargo build --release
+
+      - name: Upload Linux binary
+        uses: actions/upload-artifact@v3
+        with:
+          name: linux-binary
+          path: target/release/histdatascraper
+
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          profile: minimal
+
+      - name: Build release macOS
+        run: cargo build --release
+
+      - name: Upload macOS binary
+        uses: actions/upload-artifact@v3
+        with:
+          name: macos-binary
+          path: target/release/histdatascraper
+
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          profile: minimal
+
+      - name: Build release Windows
+        run: cargo build --release
+
+      - name: Upload Windows binary
+        uses: actions/upload-artifact@v3
+        with:
+          name: windows-binary
+          path: target/release/histdatascraper.exe
