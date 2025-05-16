@@ -59,6 +59,26 @@ Select a data type:
 Download successful, data saved in: ./data/EURUSD.csv
 ```
 
+## 🚨 macOS Gatekeeper Notice 🚨
+
+If you see this warning:
+
+❗ *"Apple cannot check `histdatascraper-macos` for malicious software."*
+
+It means macOS flagged the app with a **quarantine** attribute. To fix it, just run this command in your terminal:
+
+```
+xattr -d com.apple.quarantine /path/to/histdatascraper-macos
+```
+
+For example:
+
+```
+xattr -d com.apple.quarantine /Users/me/Downloads/histdatascraper-macos
+```
+
+✅ This removes the quarantine flag and lets you open the app normally!
+
 ## 📌 Notes
 
 - Make sure your ChromeDriver version matches your Chrome browser. 🔄  
