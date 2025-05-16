@@ -1,0 +1,17 @@
+[package]
+name = "histdatascraper"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+chrono = "0.4.41"
+dialoguer = "0.11.0"
+directories = "6.0.0"
+indicatif = "0.17.11"
+inquire = "0.7.5"
+once_cell = "1.21.3"
+polars = {version = "0.46.0", features = ["dtype-full", "lazy", "parquet", "regex", "strings"]}
+reqwest = "0.12.15"
+thirtyfour = "0.35.0"
+tokio = {version = "1.45.0", features = ["full"]}
+zip = "3.0.0"
