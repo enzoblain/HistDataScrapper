@@ -168,8 +168,8 @@ pub async fn downloader(tx: Sender<u64>, pair: String, from: DateTime<Utc>, to: 
         ]);
 
         // Save the file paths
-        let file_path = format!("data/DAT_ASCII_{}_M1_{}.csv", pair, year);
-        let other_file_path = format!("data/DAT_ASCII_{}_M1_{}.txt", pair, year);
+        let file_path = format!("{}/DAT_ASCII_{}_M1_{}.csv", destination.to_string_lossy(), pair, year);
+        let other_file_path = format!("{}/DAT_ASCII_{}_M1_{}.txt", destination.to_string_lossy(), pair, year);
 
         let mut df = LazyCsvReader::new(&file_path).with_separator(b';').with_has_header(false)
             .with_schema(Some(Arc::new(schema)))

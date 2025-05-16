@@ -4,7 +4,7 @@ use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, TimeZone, Utc};
 use dialoguer::Select;
 use indicatif::{ProgressBar, ProgressStyle};
 use inquire::Text;
-use std::{path::PathBuf, process::exit};
+use std::{fs, path::PathBuf, process::exit};
 use tokio::sync::mpsc::Receiver;
 
 pub fn clear_terminal() { print!("{esc}c", esc = 27 as char); }
@@ -132,15 +132,23 @@ pub fn choose_destination() -> PathBuf {
     // Convert the string to a PathBuf
     let path = PathBuf::from(destination);
 
-    // If the path doesn't exist, create it
-    if !path.exists() {
-        if let Err(e) = std::fs::create_dir_all(&path) {
-            println!("Failed to create directory: {}", e);
-            exit(1);
+    let abs_path = match fs::canonicalize(&path) {
+        Ok(p) => p,
+        Err(_) => {
+            // Si la canonicalisation échoue (ex: dossier pas encore créé),
+            // on peut essayer de créer le dossier et re-canonicaliser
+            if let Err(e) = fs::create_dir_all(&path) {
+                eprintln!("Failed to create directory {}: {}", path.display(), e);
+                std::process::exit(1);
+            }
+            fs::canonicalize(&path).unwrap_or_else(|e| {
+                eprintln!("Failed to canonicalize directory after creation: {}", e);
+                std::process::exit(1);
+            })
         }
-    }
+    };
 
-    return path;
+    return abs_path;
 }
 
 pub fn choose_datatype() -> String {
