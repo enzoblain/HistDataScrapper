@@ -4,23 +4,23 @@ use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, TimeZone, Utc};
 use dialoguer::Select;
 use indicatif::{ProgressBar, ProgressStyle};
 use inquire::Text;
-use std::{fs, path::PathBuf, process::exit};
+use std::{
+        fs::{canonicalize, create_dir_all},
+        path::PathBuf,
+        process::exit,
+};
 use tokio::sync::mpsc::Receiver;
 
 pub fn clear_terminal() { print!("{esc}c", esc = 27 as char); }
 
-pub async fn show_progress(mut rx: Receiver<u64>, year_duration: u64) {
-    clear_terminal();
-
-    // Create a new progress bar
-    // We set to the double because we noticed when whe downloaded the data and when we parsed it
-    // And one more because we have to save the whole data
-    let pb = ProgressBar::new(2 * year_duration + 1);
+// Function to display a progress bar
+pub async fn show_progress(mut rx: Receiver<usize>)  {
+    let pb = ProgressBar::new(100);
 
     // Style
     pb.set_style(
         ProgressStyle::default_bar()
-            .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos:>7}/{len:7} ({eta})").unwrap()
+            .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos:>3}% ({eta})").unwrap()
     );
 
     // Spawn the progress bar
@@ -29,10 +29,13 @@ pub async fn show_progress(mut rx: Receiver<u64>, year_duration: u64) {
     // Wait for an update from the channel
     // And update the progress bar
     while let Some(value) = rx.recv().await {
-        pb.inc(value);
-    }
+        if value == 0 {
+            pb.finish_with_message("Data downloaded successfully");
 
-    clear_terminal();
+            break;
+        }
+        pb.inc(value as u64);
+    }
 }
 
 pub async fn choose_pair() -> String {
@@ -62,8 +65,6 @@ pub async fn choose_pair() -> String {
         .unwrap();
 
     pairs[selection].to_string()
-
-
 }
 
 pub async fn choose_dates(pair: String) -> (DateTime<Utc>, DateTime<Utc>) {
@@ -132,18 +133,18 @@ pub fn choose_destination() -> PathBuf {
     // Convert the string to a PathBuf
     let path = PathBuf::from(destination);
 
-    let abs_path = match fs::canonicalize(&path) {
+    let abs_path = match canonicalize(&path) {
         Ok(p) => p,
         Err(_) => {
             // Si la canonicalisation échoue (ex: dossier pas encore créé),
             // on peut essayer de créer le dossier et re-canonicaliser
-            if let Err(e) = fs::create_dir_all(&path) {
+            if let Err(e) = create_dir_all(&path) {
                 eprintln!("Failed to create directory {}: {}", path.display(), e);
-                std::process::exit(1);
+                exit(1);
             }
-            fs::canonicalize(&path).unwrap_or_else(|e| {
+            canonicalize(&path).unwrap_or_else(|e| {
                 eprintln!("Failed to canonicalize directory after creation: {}", e);
-                std::process::exit(1);
+                exit(1);
             })
         }
     };

@@ -1,110 +1,100 @@
-use crate::PORT;
-use crate::utils::utils::{get_download_dir, unzip_file, wait_until_file_downloaded};
+use crate::utils::{
+    driver::{close_driver, launch_driver},
+    utils::{calculate_progress_weight, calculate_split, find_available_port, get_download_dir, unzip_file, wait_until_file_downloaded},
+};
 
-use chrono::{Datelike, DateTime, NaiveDateTime, TimeZone, Utc};
-use once_cell::sync::Lazy;
+use chrono::{Datelike, DateTime, Utc};
+use futures::future::join_all;
 use polars::prelude::*;
-use std::{collections::HashMap, fs::File, path::PathBuf, sync::Arc};
+use std::{
+    fs::{File, remove_dir_all},
+    path::PathBuf,
+    sync::Arc,
+};
 use thirtyfour::prelude::*;
-use tokio::sync::{mpsc::Sender, Mutex};
+use tokio::sync::mpsc::Sender;
 
-pub static PAIRS: Lazy<Mutex<HashMap<String, DateTime<Utc>>>> = Lazy::new(|| {
-    Mutex::new(HashMap::new())
-});
+pub async fn download_data(pair: String, from_date: DateTime<Utc>, to_date: DateTime<Utc>, data_dir: PathBuf, data_type: String, tx: Sender<usize>) -> Result<(), String> {
+    // Calculate the number of years to download
+    let from_year = from_date.year() as usize;
+    let to_year = to_date.year() as usize;
+    let year_duration = to_year - from_year + 1 as usize;
 
-pub async fn build_pairs() {
-    // Create a new HashMap to store the pairs and their start dates
-    macro_rules! insert {
-        ($pair:literal, $year:literal) => {
-            let key = $pair.replace("/", "");
-            // Generate the date from the year
-            let dt = NaiveDateTime::parse_from_str(
-                &format!("{}-01-01 00:00:00", $year),
-                "%Y-%m-%d %H:%M:%S"
-            )
-            .map(|dt| Utc.from_utc_datetime(&dt))
-            .unwrap();
+    // Then we split it to make it parallel
+    let split = calculate_split(from_year, year_duration);
 
-            // Insert the pair and its start date into the HashMap
-            {
-                let mut pairs_lock = PAIRS.lock().await;
-                pairs_lock.insert(key.clone(), dt);
-            };
-        };
+    // Calculate the progress weight
+    // So we have a good display of the progress
+    let progress_weight = Arc::new(calculate_progress_weight(year_duration));
+
+    // Get the default download directory
+    let download_dir = get_download_dir().unwrap();
+
+    // Init the main DataFrame
+    let mut main_df = DataFrame::new(vec![
+        Column::new("datetime".into(), Vec::<i64>::new()).cast(&DataType::Datetime(TimeUnit::Microseconds, None)).unwrap(),
+        Column::new("open".into(), Vec::<f64>::new()),
+        Column::new("high".into(), Vec::<f64>::new()),
+        Column::new("low".into(), Vec::<f64>::new()),
+        Column::new("close".into(), Vec::<f64>::new()),
+        Column::new("volume".into(), Vec::<i64>::new()),
+    ]).unwrap();
+    
+    // Create arc to permit sharing the data between threads
+    let pair = Arc::new(pair);
+    let download_dir = Arc::new(download_dir);
+    let tx = Arc::new(tx);
+
+    // Create the different tasks and spawn them
+    // Store the results in tasks
+    let mut tasks = Vec::new();
+    for repartition in split {
+        let pair = Arc::clone(&pair);
+        let download_dir = Arc::clone(&download_dir);
+        let tx = Arc::clone(&tx);
+        let progress_weight = Arc::clone(&progress_weight);
+
+        tasks.push(tokio::spawn(async move {
+            download_split_data(pair, download_dir, repartition, tx, progress_weight).await
+        }));
     }
 
-    // All pairs from histdata.com
-    insert!("AUDCAD", 2007);
-    insert!("AUDCHF", 2008);
-    insert!("AUDJPY", 2002);
-    insert!("AUDNZD", 2007);
-    insert!("AUDUSD", 2000);
-    insert!("AUXAUD", 2010);
-    insert!("BCOUSD", 2010);
-    insert!("CADCHF", 2008);
-    insert!("CADJPY", 2007);
-    insert!("CHFJPY", 2002);
-    insert!("ETXEUR", 2010);
-    insert!("EURAUD", 2002);
-    insert!("EURCAD", 2007);
-    insert!("EURCHF", 2000);
-    insert!("EURCZK", 2010);
-    insert!("EURDKK", 2008);
-    insert!("EURGBP", 2002);
-    insert!("EURHUF", 2010);
-    insert!("EURJPY", 2002);
-    insert!("EURNOK", 2008);
-    insert!("EURNZD", 2008);
-    insert!("EURPLN", 2010);
-    insert!("EURSEK", 2008);
-    insert!("EURTRY", 2010);
-    insert!("EURUSD", 2000);
-    insert!("FRXEUR", 2010);
-    insert!("GBPCHF", 2010);
-    insert!("GBPCAD", 2007);
-    insert!("GBPJPY", 2002);
-    insert!("GBPNZD", 2008);
-    insert!("GBPAUD", 2007);
-    insert!("GBPUSD", 2000);
-    insert!("GRXEUR", 2010);
-    insert!("HKXHKD", 2010);
-    insert!("JPXJPY", 2010);
-    insert!("NSXUSD", 2010);
-    insert!("NZDCAD", 2008);
-    insert!("NZDCHF", 2008);
-    insert!("NZDJPY", 2006);
-    insert!("NZDUSD", 2005);
-    insert!("SGDJPY", 2008);
-    insert!("SPXUSD", 2010);
-    insert!("UDXUSD", 2010);
-    insert!("UKXGBP", 2010);
-    insert!("USDCAD", 2002);
-    insert!("USDCHF", 2000);
-    insert!("USDCZK", 2010);
-    insert!("USDDKK", 2008);
-    insert!("USDHKD", 2008);
-    insert!("USDHUF", 2010);
-    insert!("USDJPY", 2000);
-    insert!("USDMXN", 2000);
-    insert!("USDNOK", 2008);
-    insert!("USDPLN", 2010);
-    insert!("USDSGD", 2008);
-    insert!("USDSEK", 2008);
-    insert!("USDTRY", 2010);
-    insert!("USDZAR", 2010);
-    insert!("WTIUSD", 2010);
-    insert!("XAUAUD", 2009);
-    insert!("XAUCHF", 2009);
-    insert!("XAUEUR", 2009);
-    insert!("XAUGBP", 2009);
-    insert!("XAUUSD", 2009);
-    insert!("XAGUSD", 2009);
-    insert!("ZARJPY", 2010);
+    // Wait for all the tasks to finish
+    let results = join_all(tasks).await;
+
+    // Check for errors and if not merge the DataFrames
+    for result in results {
+        match result {
+            Ok(Ok(df)) => {
+                main_df.vstack_mut(&df).unwrap();
+            }
+            Ok(Err(e)) => {
+                eprintln!("Error downloading data: {}", e);
+            }
+            Err(e) => {
+                eprintln!("Error spawning task: {}", e);
+            }
+        }
+    }
+
+    // Only keep the data between the dates asked
+    main_df = main_df.lazy()
+                     .filter(col("datetime").gt(lit(from_date.timestamp_millis() * 1000)))
+                     .filter(col("datetime").lt(lit(to_date.timestamp_millis() * 1000)))
+                     .collect().map_err(|_| "Failed to filter DataFrame")?;
+
+    // Save the data
+    save_data(&mut main_df, &data_dir, &pair, &data_type)?;
+
+    // Signal the progress that we have finished
+    tx.send(0).await.map_err(|_| "Failed to send progress")?;
+
+    Ok(())
 }
 
-
-pub async fn downloader(tx: Sender<u64>, pair: String, from: DateTime<Utc>, to: DateTime<Utc>, destination: PathBuf, datatype: String) -> Result<(), String> {
-    // Create a DataFrame to store the data
+// This function split is used to execute the different tasks in parallel
+pub async fn download_split_data(pair: Arc<String>, download_dir: Arc<String>, years: Vec<usize>, tx: Arc<Sender<usize>>, progress_weight: Arc<usize>) -> Result<DataFrame, String> {
+    // Init the main DataFrame
     let mut main_df = DataFrame::new(vec![
         Column::new("datetime".into(), Vec::<i64>::new()).cast(&DataType::Datetime(TimeUnit::Microseconds, None)).unwrap(),
         Column::new("open".into(), Vec::<f64>::new()),
@@ -114,48 +104,43 @@ pub async fn downloader(tx: Sender<u64>, pair: String, from: DateTime<Utc>, to: 
         Column::new("volume".into(), Vec::<i64>::new()),
     ]).unwrap();
 
-    // Get the available port
-    let port = {
-        let port_lock = PORT.lock().await;
-        *port_lock
-    };
+    // Find an available port
+    // And launch the driver
+    let port = find_available_port(9000, 9500).await;
+    launch_driver(port).await.unwrap();
 
-    // Launch the browser
-    // And do not show it
+    // Put some arguments to the driver
     let mut caps = DesiredCapabilities::chrome();
     caps.add_arg("--headless").map_err(|_| "Failed to add argument: --headless")?;
+    caps.add_arg("--disable-gpu").map_err(|_| "Failed to add argument: --disable-gpu")?;
+    caps.add_arg("--no-sandbox").map_err(|_| "Failed to add argument: --no-sandbox")?;
+    caps.add_arg("--disable-dev-shm-usage").map_err(|_| "Failed to add argument: --disable-dev-shm-usage")?;
+
+    // Use the driver
     let driver = match WebDriver::new(format!("http://localhost:{}", port), caps).await {
         Ok(d) => d,
         Err(_) => return Err("Failed to create WebDriver".into()),
     };
 
-    // Find the download directory of the user
-    let download_dir = get_download_dir().unwrap();
+    for year in years {
+        let lowercase_pair = pair.to_lowercase();
 
-    // Get the beginning and ending year from the date range
-    let beginning_year = from.year();
-    let ending_year = to.year();
-
-    let lowercase_pair = pair.to_lowercase();
-
-    // Iterate through the years and download the data
-    for year in beginning_year..ending_year + 1 {
-        // Connect to the website
-        // And download the data
+        // Find the download link
+        // And click on it
         driver.get(format!("https://www.histdata.com/download-free-forex-historical-data/?/ascii/1-minute-bar-quotes/{}/{}", lowercase_pair, year)).await.map_err(|_| "Failed to open URL")?;
         let elem = driver.find(By::Id("a_file")).await.map_err(|_| "Failed to find element: a_file")?;
         elem.click().await.map_err(|_| "Failed to click element: a_file")?;
 
         // Wait for the download to finish
-        // And then handle the file
         let file = format!("{}/HISTDATA_COM_ASCII_{}_M1{}.zip", download_dir, pair, year);
         wait_until_file_downloaded(&file);
-        match unzip_file(&file, "data") {
+        match unzip_file(&file) {
             Ok(_) => (),
             Err(e) => return Err(format!("Failed to unzip file: {}", e)),
         }
 
-        tx.send(1).await.map_err(|_| "Failed to send progress")?;
+        // Notify that we are done with the download
+        tx.send(*progress_weight).await.map_err(|_| "Failed to send progress")?;
 
         // Force all the columns to be string
         let schema = Schema::from_iter(vec![
@@ -166,11 +151,9 @@ pub async fn downloader(tx: Sender<u64>, pair: String, from: DateTime<Utc>, to: 
             Field::new("column_5".into(), DataType::String),
             Field::new("column_6".into(), DataType::String),
         ]);
-
-        // Save the file paths
-        let file_path = format!("{}/DAT_ASCII_{}_M1_{}.csv", destination.to_string_lossy(), pair, year);
-        let other_file_path = format!("{}/DAT_ASCII_{}_M1_{}.txt", destination.to_string_lossy(), pair, year);
-
+        
+        // Get the data from the file downloaded
+        let file_path = format!("{}/DAT_ASCII_{}_M1_{}.csv", &file.strip_suffix(".zip").unwrap(), pair, year);
         let mut df = LazyCsvReader::new(&file_path).with_separator(b';').with_has_header(false)
             .with_schema(Some(Arc::new(schema)))
             .finish().unwrap().collect().unwrap();
@@ -195,7 +178,7 @@ pub async fn downloader(tx: Sender<u64>, pair: String, from: DateTime<Utc>, to: 
                 col("column_4").cast(DataType::String).str().replace_all(lit(" "), lit(""), false).cast(DataType::Float64).alias("low"),
                 col("column_5").cast(DataType::String).str().replace_all(lit(" "), lit(""), false).cast(DataType::Float64).alias("close"),
                 col("column_6").cast(DataType::String).str().replace_all(lit(" "), lit(""), false).cast(DataType::Int64).alias("volume"),
-           ])
+            ])
         .drop([
             "column_1",
             "column_2",
@@ -206,42 +189,44 @@ pub async fn downloader(tx: Sender<u64>, pair: String, from: DateTime<Utc>, to: 
         ])
         .collect().unwrap();
 
-        // If it's the first year, we have to filter the data (start where the user wants)
-        if year == beginning_year {
-            df = df.lazy()
-                .filter(col("datetime").gt(lit(from.timestamp_millis())))
-                .collect().map_err(|_| "Failed to filter DataFrame")?;
-        }
-        
-        // If it's the last year, we have to filter the data (stop where the user wants)
-        else if year == ending_year {
-            df = df.lazy()
-                    .filter(col("datetime").lt(lit(to.timestamp_millis())))
-                    .collect().map_err(|_| "Failed to filter DataFrame")?;
-        }
-
+        // Merge the DataFrame with the main one
         main_df = main_df.vstack(&df).unwrap();
 
-        // Remove the files
-        std::fs::remove_file(&file_path).expect("Failed to remove file");
-        std::fs::remove_file(&other_file_path).expect("Failed to remove file");
+        // Remove the downloaded file
+        remove_dir_all(&file.strip_suffix(".zip").unwrap()).map_err(|_| "Failed to remove directory")?;
 
-        tx.send(1).await.map_err(|_| "Failed to send progress")?;
+        // Notify that we are done with the parsing
+        tx.send(*progress_weight).await.map_err(|_| "Failed to send progress")?;
     }
 
-    match datatype.as_str() {
+    // Close the driver and the server
+    driver.quit().await.map_err(|_| "Failed to quit driver")?;
+    close_driver(port).await.map_err(|_| "Failed to close browser")?;
+
+    Ok(main_df)
+}
+
+pub fn save_data(df: &mut DataFrame, data_dir: &PathBuf, pair: &str, data_type: &str) -> Result<(), String> {
+    // Get the paths
+    let file_path = format!("{}/{}.{}", data_dir.display(), pair, data_type);
+    let file = File::create(&file_path).map_err(|e| format!("Failed to create file {}: {}", file_path, e))?;
+
+    // Save the data with the right format
+    match data_type {
         "csv" => {
-            // Save the DataFrame to a CSV file
-            CsvWriter::new(File::create(format!("{}/{}.csv", destination.to_string_lossy().to_string(), pair)).unwrap()).finish(&mut main_df).unwrap();
+            CsvWriter::new(file)
+                .finish(df)
+                .map_err(|e| format!("Failed to write CSV file: {}", e))?;
         }
         "parquet" => {
-            // Save the DataFrame to a Parquet file
-            ParquetWriter::new(File::create(format!("{}/{}.parquet", destination.to_string_lossy().to_string(), pair)).unwrap()).finish(&mut main_df).unwrap();
+            ParquetWriter::new(file)
+                .finish(df)
+                .map_err(|e| format!("Failed to write Parquet file: {}", e))?;
         }
-        _ => {}
+        _ => {
+            return Err(format!("Unsupported data type: {}", data_type));
+        }
     }
-
-    tx.send(1).await.map_err(|_| "Failed to send progress")?;
-
+    
     Ok(())
 }

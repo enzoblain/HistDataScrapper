@@ -1,6 +1,8 @@
 # 🚀 HistDataScrapper
 
-HistDataScrapper is a lively and easy-to-use command-line tool to grab 1-minute candlestick data for forex pairs straight from HistData.com. Powered by ChromeDriver automation, it offers an interactive terminal interface that makes selecting pairs, dates, and formats a breeze. 🎯📈
+HistDataScrapper is a lively and easy-to-use command-line tool to grab 1-minute candlestick data for forex pairs straight from HistData.com. Powered by ChromeDriver automation and written in Rust, it leverages the language’s strong concurrency model to efficiently handle multiple downloads in parallel. 🦀⚡
+
+Thanks to Rust’s safety and performance, HistDataScrapper provides a fast and reliable experience. The interactive terminal interface makes selecting currency pairs, dates, and file formats a breeze. 🎯📈
 
 ## ⚙️ Prerequisites
 
@@ -45,18 +47,13 @@ Just download and run the executable — no need for manual building if you use 
 
 ```
 $ ./HistDataScrapper
-Select a currency pair:
-> EUR/USD
-Enter beginning date (YYYY-MM-DD), between 2000-01-01 and 2024-12-31:
-> 2020-01-01
-Enter end date (YYYY-MM-DD), between 2020-01-01 and 2024-12-31:
-> 2021-01-01
-Where do you want to save the data?
-> data/
-Select a data type:
-> csv
-[=====>..........................] 10/100 (ETA: 1m23s)
-Download successful, data saved in: ./data/EURUSD.csv
+Select a currency pair: AUDCAD
+> Enter beginning date (YYYY-MM-DD), between 2007-01-01 and 2024-12-31:  2007-01-01
+> Enter end date (YYYY-MM-DD), between 2007-01-01 and 2024-12-31:        2024-12-31
+> Where do you want to save the data? data
+Select a data type: csv
+[00:00:05] [████▏.................................]   8% (15s)
+Data downloaded successfully!
 ```
 
 ## 🚨 macOS Gatekeeper Notice 🚨

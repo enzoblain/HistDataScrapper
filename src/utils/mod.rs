@@ -1,3 +1,3 @@
-pub mod browser;
+pub mod driver;
 pub mod terminal;
 pub mod utils;

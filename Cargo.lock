@@ -1018,6 +1018,7 @@ dependencies = [
  "chrono",
  "dialoguer",
  "directories",
+ "futures",
  "indicatif",
  "inquire",
  "once_cell",
